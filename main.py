@@ -158,14 +158,14 @@ def main():
 
     # 多个模板 + ROI
     template_configs = {
-        'confirm.png': {'roi': (967, 631, 290, 70)},
+        'confirm.png': {'roi': (960, 600, 300, 90)},
         'skip_btn.png': {'roi': (1622, 100, 243, 67)},
         'skip_menu.png': {'roi': (1622, 100, 243, 67)},
         'dialog_main.png': {'roi': (1420, 552, 68, 252)},
         'dialog_warn.png': {'roi': (1420, 552, 68, 252)},
         'dialog_normal.png': {'roi': (1420, 552, 68, 252)},
         'skip_dialog.png': {'roi': (1465, 977, 40, 35)},
-        'skip_black.png': {'roi': (935, 580, 56, 66)}
+        'skip_black.png': {'roi': (935, 565, 56, 150)}
     }
 
     templates = []
