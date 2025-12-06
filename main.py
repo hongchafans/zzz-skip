@@ -1,5 +1,6 @@
 import time
 import logging
+from ctypes import wintypes
 
 import win32gui
 import win32api
@@ -34,7 +35,22 @@ class Interaction:
     def __init__(self, hwnd_window):
         self.hwnd_window = hwnd_window
         self.user32 = ctypes.windll.user32
+        self.gdi32 = ctypes.windll.gdi32
         self.cursor_position = None
+
+        # 缓存空光标（初始化一次）
+        hBitmap = self.gdi32.CreateBitmap(1, 1, 1, 1, None)
+        hMask = self.gdi32.CreateBitmap(1, 1, 1, 1, None)
+        self.empty_cursor = self.user32.CreateCursor(0, 0, 0, 1, 1,
+                                                     ctypes.cast(ctypes.byref(ctypes.c_void_p(hBitmap)),
+                                                                 ctypes.POINTER(wintypes.LPBYTE)),
+                                                     ctypes.cast(ctypes.byref(ctypes.c_void_p(hMask)),
+                                                                 ctypes.POINTER(wintypes.LPBYTE)))
+        self.gdi32.DeleteObject(hBitmap)
+        self.gdi32.DeleteObject(hMask)
+        # 所有系统光标 ID（完整列表，覆盖所有标准类型）
+        self.cursor_ids = [32512, 32513, 32514, 32515, 32516, 32640, 32641, 32642, 32643, 32644, 32645, 32646, 32648,
+                           32649, 32650, 32651, 32671, 32672, 32673, 32674, 32675, 32676, 32677, 32678, 32679, 32680]
 
     @property
     def hwnd(self):
@@ -48,12 +64,12 @@ class Interaction:
     def height(self):
         return self.hwnd_window.hwnd.height
 
-    def operate(self, fun, block=True):
+    def operate(self, fun):
         bg = not self.hwnd_window.is_foreground()
         result = None
         if bg:
-            if block:
-                self.block_input()
+            self.hide_cursor()
+            self.block_input()
             self.cursor_position = win32api.GetCursorPos()
             self.activate()
         try:
@@ -64,8 +80,8 @@ class Interaction:
             self.deactivate()
             time.sleep(0.02)
             win32api.SetCursorPos(self.cursor_position)
-            if block:
-                self.unblock_input()
+            self.unblock_input()
+            self.show_cursor()
         return result
 
     def activate(self):
@@ -90,7 +106,7 @@ class Interaction:
         win32gui.PostMessage(self.hwnd, message, wParam, lParam)
 
     def click(self, x=-1, y=-1, down_time=0.02, key="left"):
-        self.operate(lambda: self.do_click(x, y, down_time=down_time, key=key), block=True)
+        self.operate(lambda: self.do_click(x, y, down_time=down_time, key=key))
 
     def do_click(self, x=-1, y=-1, down_time=0.02, key="left"):
         click_pos = self.make_mouse_position(x, y)
@@ -125,6 +141,14 @@ class Interaction:
     def on_visible(self, visible):
         if visible:
             self.activate()
+
+    def hide_cursor(self):
+        for cid in self.cursor_ids:
+            copy = self.user32.CopyIcon(self.empty_cursor)
+            self.user32.SetSystemCursor(copy, cid)
+
+    def show_cursor(self):
+        self.user32.SystemParametersInfoW(0x0057, 0, None, 0)
 
 def find_matches(source_gray, templates, threshold=0.8):
     matches = []
@@ -228,7 +252,11 @@ def main():
 
     except KeyboardInterrupt:
         logger.info("用户停止")
+    finally:
+        if 'interaction' in locals():
+            interaction.user32.DestroyCursor(interaction.empty_cursor)
 
 
 if __name__ == '__main__':
+
     main()
