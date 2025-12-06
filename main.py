@@ -215,7 +215,7 @@ def main():
     last_click_time = 0.0
 
     try:
-        with Capture(window_name=title) as cap:
+        with Capture(window_handle=hwnd) as cap:
             while True:
                 current_time = time.perf_counter()
                 if current_time - last_frame_time < frame_time:
