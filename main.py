@@ -85,12 +85,10 @@ class Interaction:
         return result
 
     def activate(self):
-        self.hwnd_window.to_handle_mute = False
         self.post(win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
 
     def deactivate(self):
         self.post(win32con.WM_ACTIVATE, win32con.WA_INACTIVE, 0)
-        self.hwnd_window.to_handle_mute = True
 
     def try_activate(self):
         if not self.hwnd_window.is_foreground():
