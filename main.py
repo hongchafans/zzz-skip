@@ -187,7 +187,7 @@ def main():
         'dialog_warn.png': {'roi': (1420, 552, 68, 252)},
         'dialog_normal.png': {'roi': (1420, 552, 68, 252)},
         'skip_dialog.png': {'roi': (1465, 977, 40, 35)},
-        'skip_black.png': {'roi': (935, 565, 56, 150)}
+        'skip_black.png': {'roi': (935, 565, 56, 170)}
     }
 
     templates = []
