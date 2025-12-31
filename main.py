@@ -148,7 +148,7 @@ class Interaction:
     def show_cursor(self):
         self.user32.SystemParametersInfoW(0x0057, 0, None, 0)
 
-def find_matches(source_gray, templates, threshold=0.8):
+def find_matches(source_gray, templates, threshold=0.95):
     matches = []
     for template_gray, roi, path in templates:
         x1, y1, w, h = roi
@@ -181,7 +181,7 @@ def main():
     # 多个模板 + ROI
     template_configs = {
         'confirm.png': {'roi': (960, 600, 300, 90)},
-        'skip_btn.png': {'roi': (1622, 100, 243, 67)},
+        'skip_btn.png': {'roi': (1622, 30, 243, 137)},
         'skip_menu.png': {'roi': (1622, 100, 243, 67)},
         'dialog_main.png': {'roi': (1420, 552, 68, 252)},
         'dialog_warn.png': {'roi': (1420, 552, 68, 252)},
