@@ -72,13 +72,13 @@ class Interaction:
             self.block_input()
             self.cursor_position = win32api.GetCursorPos()
             self.activate()
+            time.sleep(0.02)
         try:
             result = fun()
         except Exception as e:
             logger.error(f'操作异常', e)
         if bg:
             self.deactivate()
-            time.sleep(0.02)
             win32api.SetCursorPos(self.cursor_position)
             self.unblock_input()
             self.show_cursor()
@@ -180,9 +180,10 @@ def main():
 
     # 多个模板 + ROI
     template_configs = {
-        'confirm.png': {'roi': (960, 600, 300, 90)},
+        'confirm.png': {'roi': (960, 600, 300, 140)},
         'skip_btn.png': {'roi': (1622, 30, 243, 137)},
         'skip_menu.png': {'roi': (1622, 100, 243, 67)},
+        'auto_btn.png': {'roi': (1622, 100, 243, 67)},
         'dialog_main.png': {'roi': (1420, 552, 68, 252)},
         'dialog_warn.png': {'roi': (1420, 552, 68, 252)},
         'dialog_normal.png': {'roi': (1420, 552, 68, 252)},
@@ -199,7 +200,7 @@ def main():
             logger.warning(f"模板 {path} 加载失败")
 
     # 优先级列表
-    priority_order = ['confirm.png', 'skip_btn.png', 'skip_menu.png', 'dialog_main.png', 'dialog_warn.png',
+    priority_order = ['confirm.png', 'skip_btn.png', 'skip_menu.png', 'auto_btn.png', 'dialog_main.png', 'dialog_warn.png',
                       'dialog_normal.png', 'skip_dialog.png', 'skip_black.png']
 
     logger.info(f"加载 {len(templates)} 个模板")
@@ -229,7 +230,7 @@ def main():
                     if matches:
                         path_to_match = {m[2]: m for m in matches}
 
-                        if current_time - last_click_time >= 0.5:
+                        if current_time - last_click_time >= 0.1:
                             for pri_path in priority_order:
                                 if pri_path in path_to_match:
                                     match = path_to_match[pri_path]
