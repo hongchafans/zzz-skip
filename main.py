@@ -1,261 +1,92 @@
-import time
-import logging
-from ctypes import wintypes
+from __future__ import annotations
 
-import win32gui
-import win32api
-import win32con
-import ctypes
+import logging
+import time
+
 import cv2
+import win32gui
 from zbl import Capture
+
+from config import (
+    MATCH_THRESHOLD,
+    MIN_CLICK_INTERVAL_SECONDS,
+    PRIORITY_ORDER,
+    TARGET_FPS,
+    TEMPLATE_CONFIGS,
+    WINDOW_TITLE,
+)
+from template_matching import TemplateMatch, find_matches, load_templates
+from windowing import HwndWindow, Interaction
+
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
-class HwndWindow:
-    def __init__(self, hwnd: int):
-        self.hwnd = hwnd
+def pick_match_by_priority(matches: list[TemplateMatch]) -> TemplateMatch | None:
+    matches_by_name = {match.template_name: match for match in matches}
+    for template_name in PRIORITY_ORDER:
+        match = matches_by_name.get(template_name)
+        if match is not None:
+            return match
+    return None
 
-    @property
-    def width(self):
-        rect = win32gui.GetWindowRect(self.hwnd)
-        return rect[2] - rect[0]
 
-    @property
-    def height(self):
-        rect = win32gui.GetWindowRect(self.hwnd)
-        return rect[3] - rect[1]
-
-    def is_foreground(self):
-        fg_hwnd = win32gui.GetForegroundWindow()
-        return fg_hwnd == self.hwnd
-
-class Interaction:
-    def __init__(self, hwnd_window):
-        self.hwnd_window = hwnd_window
-        self.user32 = ctypes.windll.user32
-        self.gdi32 = ctypes.windll.gdi32
-        self.cursor_position = None
-
-        # 缓存空光标（初始化一次）
-        hBitmap = self.gdi32.CreateBitmap(1, 1, 1, 1, None)
-        hMask = self.gdi32.CreateBitmap(1, 1, 1, 1, None)
-        self.empty_cursor = self.user32.CreateCursor(0, 0, 0, 1, 1,
-                                                     ctypes.cast(ctypes.byref(ctypes.c_void_p(hBitmap)),
-                                                                 ctypes.POINTER(wintypes.LPBYTE)),
-                                                     ctypes.cast(ctypes.byref(ctypes.c_void_p(hMask)),
-                                                                 ctypes.POINTER(wintypes.LPBYTE)))
-        self.gdi32.DeleteObject(hBitmap)
-        self.gdi32.DeleteObject(hMask)
-        # 所有系统光标 ID（完整列表，覆盖所有标准类型）
-        self.cursor_ids = [32512, 32513, 32514, 32515, 32516, 32640, 32641, 32642, 32643, 32644, 32645, 32646, 32648,
-                           32649, 32650, 32651, 32671, 32672, 32673, 32674, 32675, 32676, 32677, 32678, 32679, 32680]
-
-    @property
-    def hwnd(self):
-        return self.hwnd_window.hwnd
-
-    @property
-    def width(self):
-        return self.hwnd_window.hwnd.width
-
-    @property
-    def height(self):
-        return self.hwnd_window.hwnd.height
-
-    def operate(self, fun):
-        bg = not self.hwnd_window.is_foreground()
-        result = None
-        if bg:
-            self.hide_cursor()
-            self.block_input()
-            self.cursor_position = win32api.GetCursorPos()
-            self.activate()
-            time.sleep(0.02)
-        try:
-            result = fun()
-        except Exception as e:
-            logger.error(f'操作异常', e)
-        if bg:
-            self.deactivate()
-            win32api.SetCursorPos(self.cursor_position)
-            self.unblock_input()
-            self.show_cursor()
-        return result
-
-    def activate(self):
-        self.post(win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
-
-    def deactivate(self):
-        self.post(win32con.WM_ACTIVATE, win32con.WA_INACTIVE, 0)
-
-    def try_activate(self):
-        if not self.hwnd_window.is_foreground():
-            self.activate()
-
-    def block_input(self):
-        self.user32.BlockInput(True)
-
-    def unblock_input(self):
-        self.user32.BlockInput(False)
-
-    def post(self, message, wParam=0, lParam=0):
-        win32gui.PostMessage(self.hwnd, message, wParam, lParam)
-
-    def click(self, x=-1, y=-1, down_time=0.02, key="left"):
-        self.operate(lambda: self.do_click(x, y, down_time=down_time, key=key))
-
-    def do_click(self, x=-1, y=-1, down_time=0.02, key="left"):
-        click_pos = self.make_mouse_position(x, y)
-        logger.debug(f'点击 {x}, {y}, {click_pos} {down_time}')
-        if key == "left":
-            btn_down = win32con.WM_LBUTTONDOWN
-            btn_mk = win32con.MK_LBUTTON
-            btn_up = win32con.WM_LBUTTONUP
-        elif key == "middle":
-            btn_down = win32con.WM_MBUTTONDOWN
-            btn_mk = win32con.MK_MBUTTON
-            btn_up = win32con.WM_MBUTTONUP
-        else:
-            btn_down = win32con.WM_RBUTTONDOWN
-            btn_mk = win32con.MK_RBUTTON
-            btn_up = win32con.WM_RBUTTONUP
-        self.post(btn_down, btn_mk, click_pos)
-        self.post(btn_up, 0, click_pos)
-        time.sleep(down_time)
-
-    def make_mouse_position(self, x, y):
-        if x < 0:
-            click_pos = win32api.MAKELONG(round(self.width * 0.5), round(self.height * 0.5))
-        else:
-            abs_point = win32gui.ClientToScreen(self.hwnd, (x, y))  # 直接转换
-            abs_x, abs_y = abs_point
-            click_pos = win32api.MAKELONG(x, y)
-            win32api.SetCursorPos((abs_x, abs_y))
-            time.sleep(0.001)
-        return click_pos
-
-    def on_visible(self, visible):
-        if visible:
-            self.activate()
-
-    def hide_cursor(self):
-        for cid in self.cursor_ids:
-            copy = self.user32.CopyIcon(self.empty_cursor)
-            self.user32.SetSystemCursor(copy, cid)
-
-    def show_cursor(self):
-        self.user32.SystemParametersInfoW(0x0057, 0, None, 0)
-
-def find_matches(source_gray, templates, threshold=0.95):
-    matches = []
-    for template_gray, roi, path in templates:
-        x1, y1, w, h = roi
-        source_roi = source_gray[y1:y1 + h, x1:x1 + w]
-        if source_roi.shape[0] < template_gray.shape[0] or source_roi.shape[1] < template_gray.shape[1]:
-            continue
-        res = cv2.matchTemplate(source_roi, template_gray, cv2.TM_CCOEFF_NORMED)
-        _, max_val, _, max_loc = cv2.minMaxLoc(res)
-        if max_val > threshold:
-            th, tw = template_gray.shape
-            center_x = max_loc[0] + tw // 2 + x1
-            center_y = max_loc[1] + th // 2 + y1
-            matches.append((max_val, (center_x, center_y), path))
-    return matches
-
-def main():
-
-    title = "绝区零"
-
-    hwnd = win32gui.FindWindow(None, title)
+def main() -> None:
+    hwnd = win32gui.FindWindow(None, WINDOW_TITLE)
     if not hwnd:
-        logger.error("未找到 ZZZ 窗口!")
+        logger.error("Could not find ZZZ window: %s", WINDOW_TITLE)
         return
-    logger.info(f"找到 HWND: {hwnd}")
+    logger.info("Found HWND: %s", hwnd)
 
     hwnd_window = HwndWindow(hwnd)
-
     interaction = Interaction(hwnd_window)
+    templates = load_templates(TEMPLATE_CONFIGS)
+    logger.info("Loaded %s templates", len(templates))
+    logger.info("Capture started. Press Ctrl+C to stop.")
 
-    # 多个模板 + ROI
-    template_configs = {
-        'confirm.png': {'roi': (960, 600, 300, 140)},
-        'skip_btn.png': {'roi': (1622, 30, 243, 137)},
-        'skip_menu.png': {'roi': (1622, 100, 243, 67)},
-        'auto_btn.png': {'roi': (1622, 100, 243, 67)},
-        'dialog_main.png': {'roi': (1420, 552, 68, 252)},
-        'dialog_warn.png': {'roi': (1420, 552, 68, 252)},
-        'dialog_normal.png': {'roi': (1420, 552, 68, 252)},
-        'skip_dialog.png': {'roi': (1465, 977, 40, 35)},
-        'skip_black.png': {'roi': (935, 565, 56, 170)}
-    }
-
-    templates = []
-    for path, config in template_configs.items():
-        temp = cv2.imread(path, 0)
-        if temp is not None:
-            templates.append((temp, config['roi'], path))
-        else:
-            logger.warning(f"模板 {path} 加载失败")
-
-    # 优先级列表
-    priority_order = ['confirm.png', 'skip_btn.png', 'skip_menu.png', 'auto_btn.png', 'dialog_main.png', 'dialog_warn.png',
-                      'dialog_normal.png', 'skip_dialog.png', 'skip_black.png']
-
-    logger.info(f"加载 {len(templates)} 个模板")
-
-    target_fps = 10
-    frame_time = 1.0 / target_fps
+    frame_time = 1.0 / TARGET_FPS
     last_frame_time = time.perf_counter()
-
-    logger.info("开始捕获, Ctrl+C 停止")
-
     last_click_time = 0.0
 
     try:
-        with Capture(window_handle=hwnd) as cap:
+        with Capture(window_handle=hwnd) as capture:
             while True:
                 current_time = time.perf_counter()
-                if current_time - last_frame_time < frame_time:
-                    time.sleep(frame_time - (current_time - last_frame_time))
+                elapsed = current_time - last_frame_time
+                if elapsed < frame_time:
+                    time.sleep(frame_time - elapsed)
                     continue
 
-                frame = cap.grab()
-                if frame is not None and frame.size > 0:
-                    source_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                frame = capture.grab()
+                if frame is None or frame.size <= 0:
+                    logger.warning("Captured an empty frame")
+                    continue
 
-                    matches = find_matches(source_gray, templates)
+                source_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                matches = find_matches(source_gray, templates, threshold=MATCH_THRESHOLD)
+                selected_match = pick_match_by_priority(matches)
 
-                    if matches:
-                        path_to_match = {m[2]: m for m in matches}
+                if (
+                    selected_match is not None
+                    and current_time - last_click_time >= MIN_CLICK_INTERVAL_SECONDS
+                ):
+                    interaction.click(*selected_match.position)
+                    logger.info(
+                        "Matched template %s, score=%.3f, position=%s",
+                        selected_match.template_name,
+                        selected_match.score,
+                        selected_match.position,
+                    )
+                    last_click_time = current_time
 
-                        if current_time - last_click_time >= 0.1:
-                            for pri_path in priority_order:
-                                if pri_path in path_to_match:
-                                    match = path_to_match[pri_path]
-                                    score, pos, path = match
-                                    interaction.click(pos[0], pos[1])
-                                    logger.info(f"优先匹配 模板 {path}, 分数: {score:.3f}, 位置: {pos}")
-                                    last_click_time = current_time
-                                    break
-
-                    # 可见性检查
-                    current_visible = hwnd_window.is_foreground()
-                    interaction.on_visible(current_visible)
-
-                    last_frame_time = current_time  # 更新帧时间
-
-                else:
-                    logger.warning("捕获帧为空")
-
+                interaction.on_visible(hwnd_window.is_foreground())
+                last_frame_time = current_time
     except KeyboardInterrupt:
-        logger.info("用户停止")
+        logger.info("Stopped by user")
     finally:
-        if 'interaction' in locals():
-            interaction.user32.DestroyCursor(interaction.empty_cursor)
+        interaction.close()
 
 
-if __name__ == '__main__':
-
+if __name__ == "__main__":
     main()
